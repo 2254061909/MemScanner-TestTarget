@@ -7,13 +7,21 @@ android {
         applicationId "com.kpm.testtarget"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         ndk { abiFilters 'arm64-v8a' }
     }
     externalNativeBuild { ndkBuild { path 'src/main/jni/Android.mk' } }
     buildTypes {
         release { minifyEnabled false }
+    }
+    // 强制解压 native 库：so 以真实文件出现在 /proc/pid/maps（libtesttarget.so），
+    // 否则默认 extractNativeLibs=false 会把 so 直接从 base.apk 内存映射，
+    // 导致扫描器按 so 名找不到模块、指针链的静态根落在 base.apk 段里判定失败。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

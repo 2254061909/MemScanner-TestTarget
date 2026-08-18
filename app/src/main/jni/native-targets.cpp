@@ -71,6 +71,13 @@ static void* writer_loop(void* arg) {
 }
 
 // ───────────────────────── 数值靶描述表 ─────────────────────────────────────
+// ARM64 指针标记(top-byte tagging)：malloc 返回的指针最高字节是分配器标记，
+// 真正的虚拟地址是低 56 位。扫描器读 /proc/pid/maps 用的是去标记地址，
+// 所以这里对外返回的所有地址都先去掉标记，界面显示才能和扫描器对上。
+static inline jlong untag(const void* p) {
+    return (jlong)((uintptr_t)p & 0x00FFFFFFFFFFFFFFULL);
+}
+
 struct Desc { void* ptr; char type; };   // type: i32 f d s(16) b(8) q(64)
 static Desc g_desc[16];
 static int  g_desc_n = 0;
@@ -122,7 +129,7 @@ JNI(void, init)(JNIEnv*, jclass) {
 
 JNI(jlong, addrOf)(JNIEnv*, jclass, jint id) {
     if (id < 0 || id >= g_desc_n) return 0;
-    return (jlong)(uintptr_t)g_desc[id].ptr;
+    return untag(g_desc[id].ptr);
 }
 
 JNI(jstring, valueStr)(JNIEnv* e, jclass, jint id) {
@@ -169,10 +176,10 @@ JNI(void, setInt)(JNIEnv*, jclass, jint id, jlong v) {
 }
 
 // AOB
-JNI(jlong,   aobAddr)(JNIEnv*, jclass)   { return (jlong)(uintptr_t)(g_aob ? g_aob + 16 : nullptr); }
+JNI(jlong,   aobAddr)(JNIEnv*, jclass)   { return g_aob ? untag(g_aob + 16) : 0; }
 JNI(jstring, aobPattern)(JNIEnv* e, jclass) { return e->NewStringUTF("DE AD BE EF 11 22 33 44"); }
 // 字符串
-JNI(jlong,   stringAddr)(JNIEnv*, jclass)  { return (jlong)(uintptr_t)g_string; }
+JNI(jlong,   stringAddr)(JNIEnv*, jclass)  { return untag(g_string); }
 JNI(jstring, stringValue)(JNIEnv* e, jclass) { return e->NewStringUTF(TEST_STRING); }
 
 // 指针链信息：多行文本，含各级地址、偏移与最终值。供对照指针扫描结果。
@@ -184,19 +191,19 @@ JNI(jstring, chainInfo)(JNIEnv* e, jclass) {
         " -> NodeB = 0x%llx , +0x20 处存 finalValue\n"
         "最终地址 = 0x%llx  值 = %d\n"
         "期望链: [libtesttarget.so 静态根] -> 0x18 -> 0x20",
-        (unsigned long long)(uintptr_t)g_chain_root,
-        (unsigned long long)(uintptr_t)g_nodeA,
-        (unsigned long long)(uintptr_t)g_nodeB,
-        (unsigned long long)(uintptr_t)(g_nodeB ? &g_nodeB->finalValue : nullptr),
+        (unsigned long long)untag(g_chain_root),
+        (unsigned long long)untag(g_nodeA),
+        (unsigned long long)untag(g_nodeB),
+        (unsigned long long)(g_nodeB ? untag(&g_nodeB->finalValue) : 0),
         g_nodeB ? g_nodeB->finalValue : 0);
     return e->NewStringUTF(b);
 }
-JNI(jlong, pointerFinalAddr)(JNIEnv*, jclass) { return (jlong)(uintptr_t)(g_nodeB ? &g_nodeB->finalValue : nullptr); }
+JNI(jlong, pointerFinalAddr)(JNIEnv*, jclass) { return g_nodeB ? untag(&g_nodeB->finalValue) : 0; }
 JNI(void,  bumpChainFinal)(JNIEnv*, jclass, jint delta) { if (g_nodeB) g_nodeB->finalValue += delta; }
 JNI(jint,  chainFinalValue)(JNIEnv*, jclass) { return g_nodeB ? g_nodeB->finalValue : 0; }
 
 // 写线程（观察点 + 栈回溯靶）
-JNI(jlong, writerTargetAddr)(JNIEnv*, jclass) { return (jlong)(uintptr_t)g_writer_target; }
+JNI(jlong, writerTargetAddr)(JNIEnv*, jclass) { return untag(g_writer_target); }
 JNI(void,  startWriter)(JNIEnv*, jclass, jint periodMs) {
     if (g_writer_run.load()) return;
     g_writer_run.store(true);
